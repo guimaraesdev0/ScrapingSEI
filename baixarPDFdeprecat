@@ -1,0 +1,156 @@
+const puppeteerExtra = require('puppeteer-extra');
+const fs = require('fs');
+const path = require('path');
+const colors = require('colors');  // Usando colors para estilizar o console
+
+async function loadResults(filePath) {
+    try {
+        const data = fs.readFileSync(filePath, 'utf-8');
+        console.log('Lista de links carregados com sucesso');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('Erro ao carregar o arquivo JSON:'.red, error);
+        return [];
+    }
+}
+
+async function downloadPDFs(url) {
+    try {
+        
+        puppeteerExtra.use(require('puppeteer-extra-plugin-user-preferences')({
+            userPrefs: {
+                download: {
+                    prompt_for_download: false,
+                    directory_upgrade: true,
+                    default_directory: path.join(process.cwd(), 'pdf'),
+                },
+                plugins: {
+                    always_open_pdf_externally: true,
+                    plugins_disabled: ["Chrome PDF Viewer"],
+                },
+            }
+        }));
+
+        const browser = await puppeteerExtra.launch({
+            headless: false,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+            ]
+        });
+
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36');
+
+        const downloadPath = path.resolve(__dirname, 'pdf');
+        if (!fs.existsSync(downloadPath)) {
+            fs.mkdirSync(downloadPath);
+        }
+
+        const client = await page.target().createCDPSession();
+        await client.send('Page.setDownloadBehavior', {
+            behavior: 'allow',
+            downloadPath: downloadPath,
+        });
+
+        await page.goto(url, { waitUntil: 'networkidle0' });
+        console.log('Página carregada com sucesso'.green);
+
+        const rows = await page.$$('#tblDocumentos tbody tr');
+
+        for (const row of rows) {
+            const link = await row.$('td:nth-child(2) a');
+
+            if (link) {
+                const href = await link.evaluate(a => a.href);
+
+                if (href === 'javascript:void(0)') {
+                    console.log('Link não é válido para navegação, ignorando.'.yellow);
+                } else {
+                    const onClickValue = await link.evaluate(a => a.getAttribute('onclick'));
+                    const formattedLink = onClickValue.match(/window\.open\('(.*?)'\);/)[1];
+                    const completeLink = `https://sei.anm.gov.br/sei/modulos/pesquisa/${formattedLink}`;
+                    
+                    try {
+                        await link.click();
+                        await waitForNewFile(downloadPath, completeLink);
+                        await page.bringToFront();
+                    } catch (error) {
+                        console.error(`Erro ao clicar no link ou baixar o arquivo: ${error}`.red);
+                        continue;
+                    }
+
+                    console.log(`✅ Download concluído`.green);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        }
+
+        await browser.close();
+        console.log('Todos os downloads foram iniciados. Verifique a pasta pdf para os arquivos baixados.'.magenta);
+    } catch (error) {
+        console.error(`Erro no download de PDFs: ${error}`.red);
+    }
+}
+
+let retry = 0;
+
+async function waitForNewFile(directory, url) {
+    try {
+        const initialFileCount = fs.readdirSync(directory).length;
+        while (true) {
+            const newFileCount = fs.readdirSync(directory).length;
+            if (newFileCount > initialFileCount) {
+                console.log('✅ Novo arquivo baixado.'.green);
+                break;
+            }
+
+            console.log('⏳ Aguardando o novo arquivo...');
+            if (retry >= 5) {
+                console.log("Iniciando a conversão por HTML " + url);
+                await convertHtmlToPdf(url, directory); 
+                retry = 0;
+                await new Promise(resolve => setTimeout(resolve, 500));
+                break;
+            }
+            retry++;
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    } catch (error) {
+        console.error(`Erro ao aguardar novo arquivo: ${error}`.red);
+    }
+}
+
+async function convertHtmlToPdf(url, directory) {
+    try {
+        const browser = await puppeteerExtra.launch({ headless: true });
+        const page = await browser.newPage();
+
+        await page.goto(url, { waitUntil: 'networkidle0' });
+
+        const pageTitle = await page.title();
+        const sanitizedTitle = pageTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase(); 
+
+        const pdfFilePath = path.join(directory, `${sanitizedTitle}.pdf`);
+        await page.pdf({ path: pdfFilePath, format: 'A4' });
+
+        console.log(`PDF salvo em: ${pdfFilePath}`.cyan);
+        await page.close();
+        await browser.close();
+    } catch (error) {
+        console.error(`Erro ao converter HTML para PDF: ${error}`.red);
+    }
+}
+
+async function processAllLinks(filePath) {
+    const results = await loadResults(filePath);
+
+    for (const result of results) {
+        await downloadPDFs(result.link);
+    }
+}
+
+processAllLinks('./resultados.json').catch(console.error);
