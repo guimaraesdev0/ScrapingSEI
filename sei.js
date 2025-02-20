@@ -5,7 +5,7 @@ const sharp = require('sharp');
 const fs = require('fs');
 
 const app = express();
-const PORT = 3000;
+const PORT = 8762;
 
 app.use(express.json());
 
