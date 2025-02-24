@@ -47,11 +47,11 @@ async function processCaptcha(page, processNumber) {
 
         // Pré-processamento da imagem
         await sharp(captchaPath)
-        .resize(137) // Ajusta o tamanho
+        .resize(800) // Ajusta o tamanho
         .grayscale() // Converte para escala de cinza
-        .threshold(118) // Aumenta contraste para destacar caracteres
+        .threshold(115) // Aumenta contraste para destacar caracteres
         .sharpen() // Acentua as bordas
-        .median(1)
+        .median(2)
         .normalise() // Normaliza os níveis de cor
         .toFile(processedPath);
 
@@ -77,7 +77,7 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
     try {
         // Criar uma nova instância do navegador para cada processo
         browser = await puppeteer.launch({
-            headless: true,
+            headless: false,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
