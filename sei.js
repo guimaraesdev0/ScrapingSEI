@@ -28,29 +28,37 @@ async function processCaptcha(page, processNumber) {
             throw new Error('Captcha image not found');
         }
 
+        console.clear();
+
         const captchaSrc = await captchaImage.evaluate(img => img.src);
+        console.log(captchaSrc);
+
         const captchaBuffer = await page.evaluate(async (src) => {
             const response = await fetch(src);
             const buffer = await response.arrayBuffer();
             return Array.from(new Uint8Array(buffer));
         }, captchaSrc);
 
-        // Use process number in filename to avoid conflicts
-        const captchaPath = `captcha-${processNumber.replace(/[/.]/g, '-')}.png`;
-        const processedPath = `captcha-processed-${processNumber.replace(/[/.]/g, '-')}.png`;
+        // Caminhos fixos para sobrescrever sempre a última imagem
+        const captchaPath = 'latest_captcha.png';
+        const processedPath = 'latest_captcha_processed.png';
 
         fs.writeFileSync(captchaPath, Buffer.from(captchaBuffer));
 
+        // Pré-processamento da imagem
         await sharp(captchaPath)
-            .greyscale()
-            .threshold(145)
-            .toFile(processedPath);
+        .resize(137) // Ajusta o tamanho
+        .grayscale() // Converte para escala de cinza
+        .threshold(118) // Aumenta contraste para destacar caracteres
+        .sharpen() // Acentua as bordas
+        .median(1)
+        .normalise() // Normaliza os níveis de cor
+        .toFile(processedPath);
 
-        const ocrResult = await tesseract.recognize(processedPath, 'eng');
-
-        // Cleanup
-        fs.unlinkSync(captchaPath);
-        fs.unlinkSync(processedPath);
+        // Usar OCR
+        const ocrResult = await tesseract.recognize(processedPath, 'eng', {
+            logger: m => console.log(m),
+        });
 
         return ocrResult.data.text.replace(/\s/g, '').trim();
     } catch (error) {
@@ -58,6 +66,8 @@ async function processCaptcha(page, processNumber) {
         throw error;
     }
 }
+
+
 
 async function runSingleProcess(processNumber, maxRetries = 100) {
     let browser = null;
@@ -163,7 +173,7 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
                     };
                 }
                 
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
         }
     } finally {
@@ -173,9 +183,9 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
     }
 }
 
-async function processAllInParallel(processNumbers, maxConcurrent = 10) {
-    // Processa em lotes para controlar o número máximo de navegadores simultâneos
-    const results = [];
+    async function processAllInParallel(processNumbers, maxConcurrent = 10) {
+        // Processa em lotes para controlar o número máximo de navegadores simultâneos
+        const results = [];
     for (let i = 0; i < processNumbers.length; i += maxConcurrent) {
         const batch = processNumbers.slice(i, i + maxConcurrent);
         console.log(`Processing batch ${i/maxConcurrent + 1}, processes: ${batch.join(', ')}`);
