@@ -77,7 +77,7 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
     try {
         // Criar uma nova instância do navegador para cada processo
         browser = await puppeteer.launch({
-            headless: false,
+            headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -87,7 +87,15 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
         });
 
         page = await browser.newPage();
-        
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+            if (request.resourceType() === 'stylesheet') {
+                request.abort(); // Bloqueia arquivos CSS
+            } else {
+                request.continue();
+            }
+        });
+
         page.on('dialog', async dialog => {
             console.log(`Dialog message for process ${processNumber}: ${dialog.message()}`);
             await dialog.dismiss();
