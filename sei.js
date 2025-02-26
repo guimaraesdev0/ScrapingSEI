@@ -3,11 +3,21 @@ const puppeteer = require('puppeteer');
 const tesseract = require('tesseract.js');
 const sharp = require('sharp');
 const fs = require('fs');
-
+const os = require('os'); // Adiciona a dependência os
 const app = express();
 const PORT = 8762;
 
 app.use(express.json());
+
+function isMemorySufficient() {
+    const freeMemory = os.freemem(); // Memória livre em bytes
+    const totalMemory = os.totalmem(); // Memória total em bytes
+    const freeMemoryMB = freeMemory / (1024 * 1024); // Convertendo para MB
+    const totalMemoryMB = totalMemory / (1024 * 1024); // Convertendo para MB
+
+    // Checa se há pelo menos 500MB de memória livre
+    return freeMemoryMB > 500;
+}
 
 async function waitForStableNavigation(page, timeout = 30000) {
     try {
@@ -77,7 +87,7 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
     try {
         // Criar uma nova instância do navegador para cada processo
         browser = await puppeteer.launch({
-            headless: false,
+            headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -198,6 +208,13 @@ async function runSingleProcess(processNumber, maxRetries = 100) {
         const batch = processNumbers.slice(i, i + maxConcurrent);
         console.log(`Processing batch ${i/maxConcurrent + 1}, processes: ${batch.join(', ')}`);
         
+        if (!isMemorySufficient()) {
+            console.log('Memória insuficiente para rodar mais processos. Aguardando liberar memória...');
+            await new Promise(resolve => setTimeout(resolve, 5000)); // Aguarda 5 segundos antes de tentar novamente
+            i -= maxConcurrent; // Ajusta o índice para tentar novamente o lote atual
+            continue;
+        }
+
         // Executa cada processo do lote em paralelo
         const batchResults = await Promise.all(
             batch.map(processNumber => runSingleProcess(processNumber))

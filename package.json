@@ -11,11 +11,13 @@
   "description": "",
   "dependencies": {
     "axios": "^1.7.7",
+    "axios-cookiejar-support": "^5.0.5",
     "colors": "^1.4.0",
     "csv-parse": "^5.6.0",
     "csv-parser": "^3.0.0",
     "express": "^4.21.1",
     "html-pdf": "^1.5.0",
+    "os": "^0.1.2",
     "pdf-parse": "^1.1.1",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
